@@ -1,72 +1,106 @@
-# Import libraries
-import numpy as np
-import tensorflow as tf
 import streamlit as st
-
-from tensorflow.keras.datasets import imdb
-from tensorflow.keras.preprocessing import sequence
+import tensorflow as tf
 from tensorflow.keras.models import load_model
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 
-# Load IMDB word index
-word_index = imdb.get_word_index()
-reverse_word_index = {value: key for key, value in word_index.items()}
+# -----------------------------
+# Constants
+# -----------------------------
+MAX_FEATURES = 10000
+MAXLEN = 500
 
-# Load the trained model
+# -----------------------------
+# Load Model
+# -----------------------------
 model = load_model("simple_rnn_imdb.h5")
 
+# -----------------------------
+# Load IMDB Word Index
+# -----------------------------
+word_index = imdb.get_word_index()
 
-# ----------------------------------------------------
-# Helper Functions
-# ----------------------------------------------------
+# Reserve special tokens exactly like IMDB
+word_index = {k: (v + 3) for k, v in word_index.items()}
+word_index["<PAD>"] = 0
+word_index["<START>"] = 1
+word_index["<UNK>"] = 2
+word_index["<UNUSED>"] = 3
 
-# Function to decode reviews
-def decode_review(encoded_review):
-    return ' '.join([reverse_word_index.get(i - 3, '?') for i in encoded_review])
 
-
-# Function to preprocess user input
+# -----------------------------
+# Preprocess User Review
+# -----------------------------
 def preprocess_text(text):
+
     words = text.lower().split()
-    encoded = [word_index.get(word, 2) + 3 for word in words]  # 2 = unknown word
-    padded = sequence.pad_sequences([encoded], maxlen=500)
+
+    encoded = [1]  # Start token
+
+    for word in words:
+        if word in word_index and word_index[word] < MAX_FEATURES:
+            encoded.append(word_index[word])
+        else:
+            encoded.append(2)  # Unknown word
+
+    padded = pad_sequences(
+        [encoded],
+        maxlen=MAXLEN,
+        padding="pre",
+        truncating="pre"
+    )
+
     return padded
 
 
-# Function to predict sentiment
+# -----------------------------
+# Predict Sentiment
+# -----------------------------
 def predict_sentiment(review):
-    preprocessed_input = preprocess_text(review)
-    prediction = model.predict(preprocessed_input, verbose=0)
 
-    sentiment = "Positive" if prediction[0][0] > 0.5 else "Negative"
+    processed = preprocess_text(review)
 
-    return sentiment, prediction[0][0]
+    prediction = model.predict(processed, verbose=0)[0][0]
+
+    sentiment = "Positive 😊" if prediction >= 0.5 else "Negative 😞"
+
+    return sentiment, prediction
 
 
-# ----------------------------------------------------
-# Streamlit App
-# ----------------------------------------------------
+# -----------------------------
+# Streamlit UI
+# -----------------------------
+st.set_page_config(
+    page_title="IMDB Sentiment Analysis",
+    page_icon="🎬",
+    layout="centered"
+)
 
 st.title("🎬 IMDB Movie Review Sentiment Analysis")
 
 st.write(
-    "Enter a movie review below to predict whether it is Positive or Negative."
+    "Enter a movie review below and the trained RNN model will predict whether it is **Positive** or **Negative**."
 )
 
-# User Input
-user_review = st.text_area(
-    "Enter your movie review here:"
+review = st.text_area(
+    "Movie Review",
+    height=180,
+    placeholder="Example: This movie was fantastic. I loved every minute of it."
 )
 
-# Prediction Button
-if st.button("Classify"):
+if st.button("Predict Sentiment"):
 
-    if user_review.strip() == "":
-        st.warning("Please enter a movie review.")
+    if review.strip() == "":
+        st.warning("Please enter a review.")
     else:
-        sentiment, score = predict_sentiment(user_review)
 
-        st.success(f"Sentiment: {sentiment}")
-        st.write(f"Prediction Score: {score:.4f}")
+        sentiment, score = predict_sentiment(review)
 
-else:
-    st.info("Enter a review and click 'Classify'.")
+        st.subheader("Prediction")
+
+        if score >= 0.5:
+            st.success(sentiment)
+        else:
+            st.error(sentiment)
+
+        st.write(f"Prediction Score: **{score:.4f}**")
